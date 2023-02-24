@@ -4,7 +4,7 @@ import esm
 import esm.inverse_folding
 
 class FusionModel(nn.Module):
-    def __init__(self):
+    def __init__(self, num_dense_layers=3, hidden_size=64):
         super(FusionModel, self).__init__()
 
         # Load IF-model
@@ -20,8 +20,12 @@ class FusionModel(nn.Module):
         self.norm_seq = nn.LayerNorm(d_seq)
         self.norm_struct = nn.LayerNorm(d_struct)
 
-        # to do -- add more layers based on model hyperparameter
-        self.linear_in = nn.Linear(d_seq + d_struct, 1)
+        self.num_dense_layers = num_dense_layers
+        self.dense = nn.ModuleList([nn.Linear(d_seq + d_struct, hidden_size)])
+        self.dense.extend(
+            [nn.Linear(hidden_size, hidden_size) for _ in range(1, num_dense_layers - 1)])
+        self.dense.append(nn.Linear(hidden_size, 1))
+        self.intermediate_act = nn.ReLU()
         self.final_act = nn.Sigmoid()
 
 
@@ -50,7 +54,11 @@ class FusionModel(nn.Module):
         print(struct_emb.shape)
 
         feat = torch.cat((seq_emb, struct_emb), dim=-1)
-        output = self.final_act(self.linear_in(feat))
+
+        # propagate through dense layers at end of network
+        for d in range(self.num_dense_layers - 1):
+            feat = self.intermediate_act(self.dense[d](feat))
+        output = self.final_act(self.dense[self.num_dense_layers - 1](feat))
         return output
 
 
